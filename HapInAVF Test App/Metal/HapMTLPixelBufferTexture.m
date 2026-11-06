@@ -8,8 +8,9 @@
 
 #import "HapMTLPixelBufferTexture.h"
 #import <Metal/Metal.h>
+#import <os/log.h>
+#import <os/signpost.h>
 
-#import "HapInAVFTestAppDelegate.h"
 #import "Utility.h"
 
 
@@ -17,6 +18,15 @@
 
 //	i'm #defining this here explicitly so i can use it as a variable in the source code, with the intent of conveying to the user that a)- this is why there's a "multiply by four" step and b)- that this value shouldn't be treated as a variable at runtime.
 #define DXT_BLOCK_SIZE 4
+
+static os_log_t HapTexturePerformanceLog(void) {
+	static os_log_t log;
+	static dispatch_once_t onceToken;
+	dispatch_once(&onceToken, ^{
+		log = os_log_create("com.vidvox.HapInAVFoundation", "PointsOfInterest");
+	});
+	return log;
+}
 
 
 
@@ -32,9 +42,15 @@
 @property (assign,readwrite) OSType codecSubType;
 @property (assign,readwrite) CGSize dxtImgSize;
 @property (assign,readwrite) CGSize imgSize;
+@property (weak) HapMTLTexturePool *poolOwner;
 
 @end
 
+
+@interface HapMTLTexturePool ()
+@property (strong) NSMutableArray<HapMTLPixelBufferTexture *> *availableTextures;
+- (void) recordMetalTextureAllocation;
+@end
 
 
 
@@ -83,27 +99,21 @@
 }
 
 
-- (void) dealloc	{
-	//NSLog(@"%s ... %@",__func__,self);
-	//	make a new instance of this class, and populate it with my device and textures, which are the only assets that i want to pool
-	HapMTLPixelBufferTexture		*poolMe = [[HapMTLPixelBufferTexture alloc] init];
-	poolMe.device = _device;
-	poolMe.textureA = _textureA;
-	poolMe.textureB = _textureB;
-	poolMe.frame = nil;
-	//	pass the new instance of me to the app delegate, which will add it to an array that functions like a crude buffer pool
-	HapInAVFTestAppDelegate		*appDelegate = (HapInAVFTestAppDelegate*)[NSApplication sharedApplication].delegate;
-	[appDelegate poolFreedPixelBufferTexture:poolMe];
-	poolMe = nil;
+- (void)recycleForReuse {
+    HapMTLTexturePool *poolOwner = _poolOwner;
+    if (poolOwner != nil)
+    	[poolOwner recycleTexture:self];
 }
 
 
 - (void) populateWithHapDecoderFrame:(HapDecoderFrame *)n inCommandBuffer:(id<MTLCommandBuffer>)inCB	{
 	if (n == nil)
 		return;
+	os_log_t performanceLog = HapTexturePerformanceLog();
+	os_signpost_id_t uploadID = os_signpost_id_generate(performanceLog);
+	os_signpost_interval_begin(performanceLog, uploadID, "Compressed texture upload CPU");
 	
 	_frame = n;
-	
 	enum HapTextureFormat		*dxtTextureFormats = n.dxtTextureFormats;
 	NSSize		dxtTextureSize = n.dxtImgSize;
 	NSSize		imgSize = n.imgSize;
@@ -159,6 +169,8 @@
 			desc.usage = MTLTextureUsageShaderRead;
 			//desc.usage = MTLTextureUsageShaderRead | MTLTextureUsageShaderWrite | MTLTextureUsagePixelFormatView;
 			_textureA = [_device newTextureWithDescriptor:desc];
+			if (_textureA != nil)
+				[_poolOwner recordMetalTextureAllocation];
 		}
 	}
 	if (_textureB == nil)	{
@@ -178,6 +190,8 @@
 			desc.usage = MTLTextureUsageShaderRead;
 			//desc.usage = MTLTextureUsageShaderRead | MTLTextureUsageShaderWrite | MTLTextureUsagePixelFormatView;
 			_textureB = [_device newTextureWithDescriptor:desc];
+			if (_textureB != nil)
+				[_poolOwner recordMetalTextureAllocation];
 		}
 	}
 	
@@ -201,6 +215,7 @@
 			withBytes:*(dxtDatas+1)
 			bytesPerRow:*(dxtMinDataSizes+1) / round(dxtTextureSize.height) * DXT_BLOCK_SIZE];
 	}
+	os_signpost_interval_end(performanceLog, uploadID, "Compressed texture upload CPU");
 	
 	_codecSubType = n.codecSubType;
 	_dxtImgSize = CGSizeMake(round(dxtTextureSize.width), round(dxtTextureSize.height));
@@ -220,5 +235,72 @@
 	}
 }
 
+@end
+
+
+@implementation HapMTLTexturePool
+{
+	NSUInteger _createdTextureObjectCount;
+	NSUInteger _reusedTextureObjectCount;
+	NSUInteger _createdMetalTextureCount;
+}
+
+- (instancetype)init {
+	self = [super init];
+	if (self != nil)
+		_availableTextures = [NSMutableArray array];
+	return self;
+}
+
+- (HapMTLPixelBufferTexture *)dequeueTextureForDevice:(id<MTLDevice>)device {
+	HapMTLPixelBufferTexture *texture = nil;
+	@synchronized (self) {
+		NSUInteger textureIndex = [_availableTextures indexOfObjectPassingTest:^BOOL(HapMTLPixelBufferTexture *candidate, NSUInteger index, BOOL *stop) {
+			return candidate.device == device;
+		}];
+		if (textureIndex != NSNotFound) {
+			texture = _availableTextures[textureIndex];
+			[_availableTextures removeObjectAtIndex:textureIndex];
+			++_reusedTextureObjectCount;
+		}
+		else {
+			++_createdTextureObjectCount;
+		}
+	}
+	if (texture == nil)
+		texture = [[HapMTLPixelBufferTexture alloc] initWithDevice:device];
+	texture.poolOwner = self;
+	return texture;
+}
+
+- (void)recycleTexture:(HapMTLPixelBufferTexture *)texture {
+	@synchronized (self) {
+		[_availableTextures addObject:texture];
+	}
+}
+
+- (void)recordMetalTextureAllocation {
+	@synchronized (self) {
+		++_createdMetalTextureCount;
+	}
+}
+
+- (NSUInteger)createdTextureObjectCount {
+	@synchronized (self) {
+		return _createdTextureObjectCount;
+	}
+}
+
+- (NSUInteger)reusedTextureObjectCount {
+	@synchronized (self) {
+		return _reusedTextureObjectCount;
+	}
+}
+
+- (NSUInteger)createdMetalTextureCount {
+	@synchronized (self) {
+		return _createdMetalTextureCount;
+	}
+}
 
 @end

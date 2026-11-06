@@ -34,7 +34,11 @@
 
 
 
-typedef void (*WriteBlockFunction)(const uint8_t *copy_src, uint8_t *copy_dst, unsigned int dst_bytes_per_row);
+typedef void (*WriteBlockFunction)(const uint8_t *copy_src,
+                                   uint8_t *copy_dst,
+                                   unsigned int dst_bytes_per_row,
+                                   unsigned int block_width,
+                                   unsigned int block_height);
 
 
 void genericHapCodecSquishRGTC1Decode(const void *src,
@@ -56,7 +60,9 @@ void genericHapCodecSquishRGTC1Decode(const void *src,
             HAP_ALIGN_16 uint8_t block_rgba[16*4];
             uint8_t *dst_base = ((uint8_t *)dst) + (dst_bytes_per_row * y) + (4 * x);
             SquishDecompress(block_rgba, src_block, kRgtc1A);
-            writeBlockFunction(block_rgba, dst_base, dst_bytes_per_row);
+            unsigned int block_width = width - x < 4 ? width - x : 4;
+            unsigned int block_height = height - y < 4 ? height - y : 4;
+            writeBlockFunction(block_rgba, dst_base, dst_bytes_per_row, block_width, block_height);
             src_block += 8;
         }
     }
@@ -64,16 +70,20 @@ void genericHapCodecSquishRGTC1Decode(const void *src,
 
 
 
-static HAP_INLINE void HapCodecDXTWriteAlphaBlockXXXA(const uint8_t *copy_src, uint8_t *copy_dst, unsigned int dst_bytes_per_row)
+static HAP_INLINE void HapCodecDXTWriteAlphaBlockXXXA(const uint8_t *copy_src,
+                                                       uint8_t *copy_dst,
+                                                       unsigned int dst_bytes_per_row,
+                                                       unsigned int block_width,
+                                                       unsigned int block_height)
 {
-    int i, j;
-    for (i = 0; i < 4; i++) {
-        for (j = 0; j < 4; j++) {
+    for (unsigned int i = 0; i < block_height; i++) {
+        for (unsigned int j = 0; j < block_width; j++) {
             copy_dst[3] = copy_src[3];
             copy_dst += 4;
             copy_src += 4;
         }
-        copy_dst += dst_bytes_per_row - 16;
+        copy_dst += dst_bytes_per_row - block_width * 4;
+        copy_src += (4 - block_width) * 4;
     }
 }
 
@@ -92,11 +102,14 @@ void HapCodecSquishRGTC1Decode(const void *src,
 
 
 
-static HAP_INLINE void HapCodecDXTWriteAlphaBlockXXXAAsAlphaOnly(const uint8_t *copy_src, uint8_t *copy_dst, unsigned int dst_bytes_per_row)
+static HAP_INLINE void HapCodecDXTWriteAlphaBlockXXXAAsAlphaOnly(const uint8_t *copy_src,
+                                                                  uint8_t *copy_dst,
+                                                                  unsigned int dst_bytes_per_row,
+                                                                  unsigned int block_width,
+                                                                  unsigned int block_height)
 {
-    int i, j;
-    for (i = 0; i < 4; i++) {
-        for (j = 0; j < 4; j++) {
+    for (unsigned int i = 0; i < block_height; i++) {
+        for (unsigned int j = 0; j < block_width; j++) {
             copy_dst[0] = copy_src[3];
             copy_dst[1] = 0;
             copy_dst[2] = 0;
@@ -104,7 +117,8 @@ static HAP_INLINE void HapCodecDXTWriteAlphaBlockXXXAAsAlphaOnly(const uint8_t *
             copy_dst += 4;
             copy_src += 4;
         }
-        copy_dst += dst_bytes_per_row - 16;
+        copy_dst += dst_bytes_per_row - block_width * 4;
+        copy_src += (4 - block_width) * 4;
     }
 }
 
@@ -116,6 +130,5 @@ void HapCodecSquishRGTC1DecodeAsAlphaOnly(const void *src,
 {
     genericHapCodecSquishRGTC1Decode(src, dst, dst_bytes_per_row, width, height, HapCodecDXTWriteAlphaBlockXXXAAsAlphaOnly);
 }
-
 
 

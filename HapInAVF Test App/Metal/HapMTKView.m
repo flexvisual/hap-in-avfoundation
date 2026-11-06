@@ -3,11 +3,13 @@
 //  HapInAVF Test App
 //
 //  Created by testadmin on 6/8/23.
-//  Copyright © 2023 Vidvox. All rights reserved.
+//  Copyright ï¿½ 2023 Vidvox. All rights reserved.
 //
 
 #import "HapMTKView.h"
 #import "HapMTKViewShaderTypes.h"
+#import <os/log.h>
+#import <os/signpost.h>
 
 
 
@@ -20,6 +22,15 @@
 #define VVSIZE NSSize
 #define VVADDPOINT(a,b) (VVMAKEPOINT((a.x+b.x),(a.y+b.y)))
 #define VVSUBPOINT(a,b) (VVMAKEPOINT((a.x-b.x),(a.y-b.y)))
+
+static os_log_t HapRenderPerformanceLog(void) {
+	static os_log_t log;
+	static dispatch_once_t onceToken;
+	dispatch_once(&onceToken, ^{
+		log = os_log_create("com.vidvox.HapInAVFoundation", "PointsOfInterest");
+	});
+	return log;
+}
 //	when we're creating, moving, and sizing rects, it's useful to be able to specify the operations relative to anchor points on the rects.
 typedef NS_ENUM(NSUInteger, VVRectAnchor)	{
 	VVRectAnchor_Center = 0,
@@ -89,17 +100,35 @@ static inline VVPOINT VVRectGetAnchorPoint(VVRECT inRect, VVRectAnchor inAnchor)
 
 
 @implementation HapMTKView
+{
+	CFTimeInterval performanceWindowStart;
+	NSUInteger performanceGPUFrameCount;
+	NSUInteger performancePresentedFrameCount;
+	double performanceTotalGPUTime;
+	double performanceMaxGPUTime;
+}
 
 
 - (void) awakeFromNib	{
 	self.device = MTLCreateSystemDefaultDevice();
+	self.wantsLayer = YES;
+	self.layer.opaque = NO;
+	self.layer.backgroundColor = NSColor.clearColor.CGColor;
+}
+
+
+- (BOOL) isOpaque {
+	return NO;
 }
 
 
 - (void) displayPixelBufferTexture:(HapMTLPixelBufferTexture *)n flipped:(BOOL)inFlipped	{
 	if (n == nil)
 		return;
+	HapMTLPixelBufferTexture *textureToRecycle = nil;
 	@synchronized (self)	{
+		if (_hapTexToDisplay != n)
+			textureToRecycle = _hapTexToDisplay;
 		_hapTexToDisplay = nil;
 		if (_cvTexToDisplay != NULL)	{
 			CVBufferRelease(_cvTexToDisplay);
@@ -109,11 +138,15 @@ static inline VVPOINT VVRectGetAnchorPoint(VVRECT inRect, VVRectAnchor inAnchor)
 		_hapTexToDisplay = n;
 		_flipV = inFlipped;
 	}
+	[textureToRecycle recycleForReuse];
+	[self setNeedsDisplay:YES];
 }
 - (void) displayCVMetalTextureRef:(CVMetalTextureRef)n flipped:(BOOL)inFlipped	{
 	if (n == NULL)
 		return;
+	HapMTLPixelBufferTexture *textureToRecycle = nil;
 	@synchronized (self)	{
+		textureToRecycle = _hapTexToDisplay;
 		_hapTexToDisplay = nil;
 		if (_cvTexToDisplay != NULL)	{
 			CVBufferRelease(_cvTexToDisplay);
@@ -123,6 +156,8 @@ static inline VVPOINT VVRectGetAnchorPoint(VVRECT inRect, VVRectAnchor inAnchor)
 		_cvTexToDisplay = CVBufferRetain(n);
 		_flipV = inFlipped;
 	}
+	[textureToRecycle recycleForReuse];
+	[self setNeedsDisplay:YES];
 }
 
 
@@ -191,8 +226,8 @@ static inline VVPOINT VVRectGetAnchorPoint(VVRECT inRect, VVRectAnchor inAnchor)
 		//NSLog(@"nothing to display, %s",__func__);
 		return;
 	}
-	CGSize			imageSize;
-	CGRect			imgRect;
+	CGSize			imageSize = CGSizeZero;
+	CGRect			imgRect = CGRectZero;
 	if (hapTexToDisplay != nil)	{
 		imageSize = hapTexToDisplay.imgSize;
 		imgRect = CGRectMake( 0, 0, imageSize.width, imageSize.height );
@@ -233,11 +268,16 @@ static inline VVPOINT VVRectGetAnchorPoint(VVRECT inRect, VVRectAnchor inAnchor)
 	//	make a command buffer, get the current drawable
 	id<MTLCommandBuffer>	cmdBuffer = [self commandBuffer];
 	id<CAMetalDrawable>		currentDrawable = self.currentDrawable;
+	if (currentDrawable == nil)
+		return;
+	os_log_t performanceLog = HapRenderPerformanceLog();
+	os_signpost_id_t encodeID = os_signpost_id_generate(performanceLog);
+	os_signpost_interval_begin(performanceLog, encodeID, "Metal frame CPU encode");
 	
 	//	make the render encoder!
 	MTLRenderPassDescriptor		*passDesc = [MTLRenderPassDescriptor new];
 	passDesc.colorAttachments[0].loadAction = MTLLoadActionClear;
-	passDesc.colorAttachments[0].clearColor = MTLClearColorMake(1, 0, 0, 1);
+	passDesc.colorAttachments[0].clearColor = MTLClearColorMake(0, 0, 0, 0);
 	passDesc.colorAttachments[0].storeAction = MTLStoreActionStore;
 	passDesc.colorAttachments[0].texture = currentDrawable.texture;
 	id<MTLRenderCommandEncoder>		renderEncoder = [cmdBuffer renderCommandEncoderWithDescriptor:passDesc];
@@ -333,8 +373,59 @@ static inline VVPOINT VVRectGetAnchorPoint(VVRECT inRect, VVRectAnchor inAnchor)
 	
 	//	we're done- end encoding, present the drawable, and then commit the command buffer
 	[renderEncoder endEncoding];
+	__weak HapMTKView *weakSelf = self;
+	[cmdBuffer addCompletedHandler:^(id<MTLCommandBuffer> completedBuffer) {
+		if (completedBuffer.status == MTLCommandBufferStatusCompleted &&
+			completedBuffer.GPUEndTime >= completedBuffer.GPUStartTime) {
+			double gpuSeconds = completedBuffer.GPUEndTime - completedBuffer.GPUStartTime;
+			double gpuMilliseconds = gpuSeconds * 1000.0;
+			os_signpost_event_emit(performanceLog, OS_SIGNPOST_ID_EXCLUSIVE, "Metal GPU execution", "gpu_ms=%{public}.3f", gpuMilliseconds);
+			HapMTKView *strongSelf = weakSelf;
+			if (strongSelf != nil) {
+				@synchronized (strongSelf) {
+					CFTimeInterval now = CACurrentMediaTime();
+					if (strongSelf->performanceWindowStart == 0) {
+						strongSelf->performanceWindowStart = now;
+						strongSelf->performanceGPUFrameCount = 0;
+						strongSelf->performancePresentedFrameCount = 0;
+						strongSelf->performanceTotalGPUTime = 0;
+						strongSelf->performanceMaxGPUTime = 0;
+					}
+					++strongSelf->performanceGPUFrameCount;
+					strongSelf->performanceTotalGPUTime += gpuSeconds;
+					strongSelf->performanceMaxGPUTime = MAX(strongSelf->performanceMaxGPUTime, gpuMilliseconds);
+					CFTimeInterval elapsed = now - strongSelf->performanceWindowStart;
+					if (elapsed >= 30.0) {
+						NSLog(@"HAP_METAL_PERF duration_s=%.2f gpu_frames=%lu presented_frames=%lu presented_fps=%.2f gpu_avg_ms=%.3f gpu_max_ms=%.3f gpu_busy_percent=%.2f",
+							elapsed,
+							(unsigned long)strongSelf->performanceGPUFrameCount,
+							(unsigned long)strongSelf->performancePresentedFrameCount,
+							strongSelf->performancePresentedFrameCount / elapsed,
+							strongSelf->performanceTotalGPUTime / strongSelf->performanceGPUFrameCount * 1000.0,
+							strongSelf->performanceMaxGPUTime,
+							strongSelf->performanceTotalGPUTime / elapsed * 100.0);
+						strongSelf->performanceWindowStart = now;
+						strongSelf->performanceGPUFrameCount = 0;
+						strongSelf->performancePresentedFrameCount = 0;
+						strongSelf->performanceTotalGPUTime = 0;
+						strongSelf->performanceMaxGPUTime = 0;
+					}
+				}
+			}
+		}
+	}];
+	[currentDrawable addPresentedHandler:^(id<MTLDrawable> presentedDrawable) {
+		os_signpost_event_emit(performanceLog, OS_SIGNPOST_ID_EXCLUSIVE, "Metal frame presented", "presented_time=%{public}.6f", presentedDrawable.presentedTime);
+		HapMTKView *strongSelf = weakSelf;
+		if (strongSelf != nil) {
+			@synchronized (strongSelf) {
+				++strongSelf->performancePresentedFrameCount;
+			}
+		}
+	}];
 	[cmdBuffer presentDrawable:currentDrawable];
 	[cmdBuffer commit];
+	os_signpost_interval_end(performanceLog, encodeID, "Metal frame CPU encode");
 	
 #if CAPTURE
 	if (cm != nil)	{
@@ -380,20 +471,14 @@ static inline VVPOINT VVRectGetAnchorPoint(VVRECT inRect, VVRectAnchor inAnchor)
 		
 		self.commandQueue = [self.device newCommandQueue];
 		
-		NSWindow		*tmpWin = self.window;
-		NSScreen		*tmpScreen = tmpWin.screen;
-		CGFloat			scale = tmpScreen.backingScaleFactor;
-		CGSize			viewportSize = self.bounds.size;
-		viewportSize.width *= scale;
-		viewportSize.height *= scale;
-		self.viewportSize = viewportSize;
+		self.viewportSize = self.drawableSize;
 		
 		self.mvpBuffer = nil;
 		CGColorSpaceRef		cs = CGColorSpaceCreateDeviceRGB();
 		self.colorspace = cs;
 		CGColorSpaceRelease(cs);
 		
-		self.clearColor = MTLClearColorMake(0., 0., 1., 1.);
+		self.clearColor = MTLClearColorMake(0., 0., 0., 0.);
 	}
 }
 

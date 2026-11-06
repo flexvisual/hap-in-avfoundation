@@ -8,14 +8,6 @@
 
 #include "DXTEncoder.h"
 #include "ImageMath.h"
-/*
-On Apple we support GL encoding using the GPU.
-The GPU is very fast but produces low quality results
-Squish produces nicer results but takes longer.
-We select the GPU when the quality setting is above "High"
-YCoCg encodes YCoCg in DXT and requires a shader to draw, and produces very high quality results
-*/
-#include "GLDXTEncoder.h"
 #include "ATEBC7Encoder.h"
 #include "SquishEncoder.h"
 #include "YCoCg.h"
@@ -108,7 +100,6 @@ NSString *const			AVFallbackFPSKey = @"AVFallbackFPSKey";
 		dxtBufferBytesPerRow[1] = 0;
 		hapBufferPoolLength = 0;
 		encoderLock = HAP_LOCK_INIT;
-		glDXTEncoder = NULL;
 		atebc7Encoder = NULL;
 		encoderProgressLock = HAP_LOCK_INIT;
 		encoderProgressFrames = [NSMutableArray arrayWithCapacity:0];
@@ -247,33 +238,21 @@ NSString *const			AVFallbackFPSKey = @"AVFallbackFPSKey";
 		//FourCCLog(@"\t\texportPixelFormat[1] is",exportPixelFormats[1]);
 		//	make a buffer pool for format conversion buffers (i know what the desired pixel format is for the dxt encoder, so i know how big the format conversion buffers have to be)
 		
-		//	if we aren't using a GL-based DXT encoder (which is "expensive" to delete/recreate), release the DXT encoder
 		if (dxtEncoder!=NULL)	{
 			encoderInputPxlFmts[0] = ((HapCodecDXTEncoderRef)dxtEncoder)->pixelformat_function(dxtEncoder, exportPixelFormats[0]);
 			switch (exportCodecType)	{
 				case kHapCodecSubType:
-				case kHapAlphaCodecSubType:	{
-					//	if we made a DXT encoder, but the DXT encoder wasn't a GL encoder, destroy the dxtEncoder
-					if (dxtEncoder != NULL && HapCodecDXTEncoderGetDXTEncoderType(dxtEncoder) != HapDXTEncoderType_GL)	{
-						HapCodecDXTEncoderDestroy((HapCodecDXTEncoderRef)dxtEncoder);
-						dxtEncoder = NULL;
-					}
-					//	else (either we couldn't make a DXT encoder, or we could and it's a GL encoder)
-					else	{
-						//	do not release the DXT encoder for this case (this is the GL encoder)
-						glDXTEncoder = dxtEncoder;
-						dxtEncoder = NULL;
-					}
+				case kHapAlphaCodecSubType:
+					HapCodecDXTEncoderDestroy((HapCodecDXTEncoderRef)dxtEncoder);
+					dxtEncoder = NULL;
 					break;
-				}
 				case kHap7AlphaCodecSubType:
-					//	if we made a DXT encoder, but the DXT encoder wasn't the ATE BC7 encoder, destroy the DXT encoder
-					if (dxtEncoder != NULL & HapCodecDXTEncoderGetDXTEncoderType(dxtEncoder) != HapDXTEncoderType_ATEBC7)	{
-					}
-					//	else (either we couldn't make a DXT encoder, or we could and it's the ATE BC7 encoder)
-					else	{
-						//	do not release the DXT encoder for this case (this is the ATE BC7 encoder)
+					if (HapCodecDXTEncoderGetDXTEncoderType(dxtEncoder) == HapDXTEncoderType_ATEBC7) {
 						atebc7Encoder = dxtEncoder;
+						dxtEncoder = NULL;
+					}
+					else {
+						HapCodecDXTEncoderDestroy((HapCodecDXTEncoderRef)dxtEncoder);
 						dxtEncoder = NULL;
 					}
 					break;
@@ -336,25 +315,6 @@ NSString *const			AVFallbackFPSKey = @"AVFallbackFPSKey";
 			}
 		}
 		
-		//	prevent multiple slices from being used if we're using a GL encoder
-		switch (exportCodecType)	{
-			case kHapCodecSubType:
-			case kHapAlphaCodecSubType:
-			{
-				if (!exportHighQualityFlag)	{
-					exportSliceCount = 1;
-					exportSliceHeight = exportDXTImgSize.height;
-				}
-				break;
-			}
-			case kHapYCoCgCodecSubType:
-			case kHapYCoCgACodecSubType:
-			case kHapAOnlyCodecSubType:
-			case kHap7AlphaCodecSubType:
-			case kHapHDRRGBCodecSubType:
-			//default:
-				break;
-		}
 	}
 	return self;
 	BAIL:
@@ -371,10 +331,6 @@ NSString *const			AVFallbackFPSKey = @"AVFallbackFPSKey";
 	HapLockUnlock(&encoderProgressLock);
 	HapLockLock(&encoderLock);
 	//	release the DXT encoder(s)
-	if (glDXTEncoder!=NULL)	{
-		HapCodecDXTEncoderDestroy((HapCodecDXTEncoderRef)glDXTEncoder);
-		glDXTEncoder = NULL;
-	}
 	if (atebc7Encoder !=  NULL)	{
 		HapCodecDXTEncoderDestroy((HapCodecDXTEncoderRef)atebc7Encoder);
 		atebc7Encoder = NULL;
@@ -487,16 +443,14 @@ NSString *const			AVFallbackFPSKey = @"AVFallbackFPSKey";
 			void			*dxtBuffer = CFAllocatorAllocate(_HIAVFMemPoolAllocator, self->dxtBufferPoolLengths[0], 0);
 			void			*dxtAlphaBuffer = NULL;
 			__block int		intErr = 0;
-			//	try to get the default GL-based DXT encoder- if it exists we need to use it (and it's shared)
+			//	The BC7 encoder is shared; DXT encoders are per-frame and can be sliced across workers.
 			HapLockLock(&self->encoderLock);
-			void			*targetDXTEncoder = self->glDXTEncoder;
-			if (targetDXTEncoder == NULL)
-				targetDXTEncoder = self->atebc7Encoder;
+			void			*targetDXTEncoder = self->atebc7Encoder;
 			void			*targetAlphaEncoder = NULL;
 			HapLockUnlock(&self->encoderLock);
 			void			*newDXTEncoder = NULL;
 			void			*newAlphaEncoder = NULL;
-			//	if we aren't sharing a GL-based DXT encoder, we need to make a new DXT encoder (which will be freed after this frame is encoded)
+			//	Create a DXT encoder when no shared BC7 encoder is available.
 			if (targetDXTEncoder == NULL)	{
 				newDXTEncoder = [self allocDXTEncoder];
 				targetDXTEncoder = newDXTEncoder;
@@ -609,8 +563,7 @@ NSString *const			AVFallbackFPSKey = @"AVFallbackFPSKey";
 				
 				//	encode the data from the RGB plane for this slice as DXT data
 				if (targetDXTEncoder != NULL)	{
-					//	if we haven't created a new DXT encoder then we're using the GL encoder, which is shared- and must thus be locked
-					if (targetDXTEncoder == self->glDXTEncoder)
+					if (targetDXTEncoder == self->atebc7Encoder)
 						HapLockLock(&self->encoderLock);
 					//	slightly different path depending on whether i'm converting the passed pixel buffer...
 					if (formatConvertBuffers[0]==nil)	{
@@ -632,7 +585,7 @@ NSString *const			AVFallbackFPSKey = @"AVFallbackFPSKey";
 							(unsigned int)self->exportImgSize.width,
 							(unsigned int)thisSliceHeight);
 					}
-					if (targetDXTEncoder == self->glDXTEncoder)
+					if (targetDXTEncoder == self->atebc7Encoder)
 						HapLockUnlock(&self->encoderLock);
 				}
 				
@@ -1053,7 +1006,7 @@ NSString *const			AVFallbackFPSKey = @"AVFallbackFPSKey";
 			if (exportHighQualityFlag)
 				returnMe = HapCodecSquishEncoderCreate(HapCodecSquishEncoderMediumQuality, exportPixelFormats[0]);
 			else
-				returnMe = HapCodecGLEncoderCreate((unsigned int)exportImgSize.width, (unsigned int)exportImgSize.height, exportPixelFormats[0]);
+				returnMe = HapCodecSquishEncoderCreate(HapCodecSquishEncoderWorstQuality, exportPixelFormats[0]);
 			break;
 		}
 		case kHapYCoCgCodecSubType:

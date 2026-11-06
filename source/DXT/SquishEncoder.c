@@ -163,7 +163,7 @@ static int HapCodecSquishEncoderEncode(HapCodecDXTEncoderRef encoder,
             }
 			
 			// Compress the block
-			SquishCompressMasked( block_rgba, mask, dst_block, ((struct HapCodecSquishEncoder *)encoder)->flags, NULL );
+			SquishCompressMasked( block_rgba, mask, dst_block, ((struct HapCodecSquishEncoder *)encoder)->flags );
 			
 			dst_block += bytes_per_block;
 		}

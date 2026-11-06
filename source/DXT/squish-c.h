@@ -71,7 +71,6 @@ enum
  @param mask		The valid pixel mask.
  @param block	Storage for the compressed DXT block.
  @param flags	Compression flags.
- @param metric	An optional perceptual metric.
  
  The source pixels should be presented as a contiguous array of 16 rgba
  values, with each component as 1 byte each. In memory this should be:
@@ -100,14 +99,8 @@ enum
  value. For images that are rendered using alpha blending, this can 
  significantly increase the perceived quality.
  
- The metric parameter can be used to weight the relative importance of each
- colour channel, or pass NULL to use the default uniform weight of 
- { 1.0f, 1.0f, 1.0f }. This replaces the previous flag-based control that 
- allowed either uniform or "perceptual" weights with the fixed values
- { 0.2126f, 0.7152f, 0.0722f }. If non-NULL, the metric should point to a 
- contiguous array of 3 floats.
  */
-void SquishCompressMasked(const u8* rgba, int mask, void* block, int flags, float* metric);
+void SquishCompressMasked(const u8* rgba, int mask, void* block, int flags);
     
 // -----------------------------------------------------------------------------
 
@@ -116,7 +109,6 @@ void SquishCompressMasked(const u8* rgba, int mask, void* block, int flags, floa
  @param rgba		The rgba values of the 16 source pixels.
  @param block	Storage for the compressed DXT block.
  @param flags	Compression flags.
- @param metric	An optional perceptual metric.
  
  The source pixels should be presented as a contiguous array of 16 rgba
  values, with each component as 1 byte each. In memory this should be:
@@ -138,17 +130,10 @@ void SquishCompressMasked(const u8* rgba, int mask, void* block, int flags, floa
  value. For images that are rendered using alpha blending, this can 
  significantly increase the perceived quality.
  
- The metric parameter can be used to weight the relative importance of each
- colour channel, or pass NULL to use the default uniform weight of 
- { 1.0f, 1.0f, 1.0f }. This replaces the previous flag-based control that 
- allowed either uniform or "perceptual" weights with the fixed values
- { 0.2126f, 0.7152f, 0.0722f }. If non-NULL, the metric should point to a 
- contiguous array of 3 floats.
- 
  This method is an inline that calls CompressMasked with a mask of 0xffff, 
  provided for compatibility with older versions of squish.
  */
-void SquishCompress(const u8* rgba, void* block, int flags, float* metric);
+void SquishCompress(const u8* rgba, void* block, int flags);
 
 // -----------------------------------------------------------------------------
 
@@ -196,7 +181,6 @@ int SquishGetStorageRequirements( int width, int height, int flags );
  @param height	The height of the source image.
  @param blocks	Storage for the compressed output.
  @param flags	Compression flags.
- @param metric	An optional perceptual metric.
  
  The source pixels should be presented as a contiguous array of width*height
  rgba values, with each component as 1 byte each. In memory this should be:
@@ -218,19 +202,12 @@ int SquishGetStorageRequirements( int width, int height, int flags );
  value. For images that are rendered using alpha blending, this can 
  significantly increase the perceived quality.
  
- The metric parameter can be used to weight the relative importance of each
- colour channel, or pass NULL to use the default uniform weight of 
- { 1.0f, 1.0f, 1.0f }. This replaces the previous flag-based control that 
- allowed either uniform or "perceptual" weights with the fixed values
- { 0.2126f, 0.7152f, 0.0722f }. If non-NULL, the metric should point to a 
- contiguous array of 3 floats.
- 
  Internally this function calls squish::CompressMasked for each block, which 
  allows for pixels outside the image to take arbitrary values. The function 
  squish::GetStorageRequirements can be called to compute the amount of memory
  to allocate for the compressed output.
  */
-void SquishCompressImage(const u8 *rgba, int width, int height, void *blocks, int flags, float *metric);
+void SquishCompressImage(const u8 *rgba, int width, int height, void *blocks, int flags);
 
 // -----------------------------------------------------------------------------
 

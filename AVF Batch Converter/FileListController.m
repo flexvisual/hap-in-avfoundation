@@ -1,6 +1,7 @@
 #import "FileListController.h"
 #import "FileNameController.h"
 #import "DestinationController.h"
+#import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 
 
 
@@ -48,7 +49,13 @@
 	[openPanel setPrompt:@"Select"];
 	[openPanel setCanChooseDirectories:YES];
 	[openPanel setCanChooseFiles:YES];
-	[openPanel setAllowedFileTypes:[NSArray arrayWithObjects:@"mov",@"fold",@"mp4",@"mpg",@"avi",nil]];
+	NSMutableArray<UTType *> *allowedTypes = [NSMutableArray array];
+	for (NSString *extension in @[@"mov", @"fold", @"mp4", @"mpg", @"avi"]) {
+		UTType *type = [UTType typeWithFilenameExtension:extension];
+		if (type != nil)
+			[allowedTypes addObject:type];
+	}
+	openPanel.allowedContentTypes = allowedTypes;
 	
 	//	following executes when the panel returns
 	if ([openPanel runModal] == NSModalResponseOK)	{
@@ -274,9 +281,10 @@
 		return;
 	//NSLog(@"\t\tclicked show button");
 	NSWorkspace		*ws = [NSWorkspace sharedWorkspace];
+	NSString *convertedFilePath = [filePtr convertedFilePath];
 	[ws
-		selectFile:[filePtr convertedFilePath]
-		inFileViewerRootedAtPath:nil];
+		selectFile:convertedFilePath
+		inFileViewerRootedAtPath:convertedFilePath.stringByDeletingLastPathComponent];
 }
 /* --------------------------------------------------------------------------------- */
 #pragma mark ---------------------

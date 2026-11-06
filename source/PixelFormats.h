@@ -83,7 +83,6 @@ void HapCodecRegisterPixelFormats(void);
 //	this enum distinguishes between the different DXT encoder types- if you make a new DXT encoder type, you should probably add it here
 typedef enum HapDXTEncoderType	{
 	HapDXTEncoderType_Unknown = 0,
-	HapDXTEncoderType_GL,
 	HapDXTEncoderType_Squish,
 	HapDXTEncoderType_YCoCg,
 	HapDXTEncoderType_ATEBC7,

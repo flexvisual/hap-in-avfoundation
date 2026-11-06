@@ -86,7 +86,7 @@ The post decode block is executed immediately after the hap frame has been decod
 - (void) setPostDecodeBlock:(AVFHapDXTPostDecodeBlock)n;
 
 /**
-NO by default.  If you set this to YES, the output will provide RGB pixel data in any HapDecoderFrame instances it returns (in addition to DXT data).  RGB-based decoding for this codec is fairly slow/inefficient, and should be avoided if possible in favor of DXT/OpenGL-based display techniques.  If you're using a custom HapDecoderFrameAllocBlock to allocate HapDecoderFrame instances, make sure your block also allocates memory for RGB-based pixel data if appropriate!
+NO by default.  If you set this to YES, the output will provide RGB pixel data in any HapDecoderFrame instances it returns (in addition to DXT data).  RGB-based decoding for this codec is fairly slow/inefficient, and should be avoided if possible in favor of displaying compressed textures directly with Metal. If you're using a custom HapDecoderFrameAllocBlock to allocate HapDecoderFrame instances, make sure your block also allocates memory for RGB-based pixel data if appropriate!
 */
 @property (assign,readwrite) BOOL outputAsRGB;
 /**

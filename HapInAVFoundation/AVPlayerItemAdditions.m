@@ -1,4 +1,5 @@
 #import "AVPlayerItemAdditions.h"
+#import "AVAssetAdditions.h"
 
 
 
@@ -8,7 +9,7 @@
 
 - (AVAssetTrack *) hapTrack	{
 	AVAsset					*itemAsset = (self==nil) ? nil : [self asset];
-	NSArray					*vidTracks = [itemAsset tracksWithMediaType:AVMediaTypeVideo];
+	NSArray					*vidTracks = itemAsset.tracks;
 	AVAssetTrack			*hapTrack = nil;
 	for (AVAssetTrack *trackPtr in vidTracks)	{
 		NSArray					*trackFormatDescs = [trackPtr formatDescriptions];
@@ -31,6 +32,11 @@
 		}
 	}
 	return hapTrack;
+}
+- (void) loadHapTrackWithCompletionHandler:(void (^)(AVAssetTrack * _Nullable, NSError * _Nullable))completionHandler {
+	[[self asset] loadHapVideoTracksWithCompletionHandler:^(NSArray<AVAssetTrack *> * _Nullable tracks, NSError * _Nullable error) {
+		completionHandler(tracks.firstObject, error);
+	}];
 }
 
 

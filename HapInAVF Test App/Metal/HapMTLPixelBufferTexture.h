@@ -12,9 +12,6 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
-
-
-
 /*		- data storage class that handles creation of id<MTLTextures> used for hap decoding
 		- intended to be cached/kept around locally per-playback-source
 		- stores textures that are populated from a HapDecoderFrame instance
@@ -34,6 +31,7 @@ NS_ASSUME_NONNULL_BEGIN
 + (MTLPixelFormat) pixelFormatForHapTextureFormat:(enum HapTextureFormat)n;
 
 - (instancetype) initWithDevice:(id<MTLDevice>)inDevice;
+- (void) recycleForReuse;
 
 //	cmd buffer is optional.  if you pass a cmd buffer, this method creates a blit encoder that it uses to synchronize the texture's CPU/GPU resources.
 - (void) populateWithHapDecoderFrame:(HapDecoderFrame *)n inCommandBuffer:(__nullable id<MTLCommandBuffer>)inCB;
@@ -47,6 +45,18 @@ NS_ASSUME_NONNULL_BEGIN
 @property (assign,readonly) OSType codecSubType;	//	like 'kHapCodecSubType', etc- interpret this value to determine how many textures receiver has & what kind of textures they are
 @property (assign,readonly) CGSize dxtImgSize;	//	the size of the textures- rounded up to the nearest multiple of 4
 @property (assign,readonly) CGSize imgSize;	//	the size of the image (which may be < the size of the texture)
+
+@end
+
+
+@interface HapMTLTexturePool : NSObject
+
+- (HapMTLPixelBufferTexture *)dequeueTextureForDevice:(id<MTLDevice>)device;
+- (void)recycleTexture:(HapMTLPixelBufferTexture *)texture;
+
+@property (nonatomic,readonly) NSUInteger createdTextureObjectCount;
+@property (nonatomic,readonly) NSUInteger reusedTextureObjectCount;
+@property (nonatomic,readonly) NSUInteger createdMetalTextureCount;
 
 @end
 

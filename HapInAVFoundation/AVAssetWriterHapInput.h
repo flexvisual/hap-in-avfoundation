@@ -55,8 +55,7 @@ This class is the main interface for using AVFoundation to encode and output vid
 	size_t			dxtBufferBytesPerRow[2];
 	size_t			hapBufferPoolLength;	//	the size of the buffers i need to create to hold hap frames
 	
-	HapLock			encoderLock;	//	used to lock glDXTEncoder
-	void			*glDXTEncoder;	//	actually a 'HapCodecDXTEncoderRef'.  only non-NULL when using the GL encoder (creating/destroying GL-based encoders is so much slower that there's a perf benefit to creating a single and caching it)
+	HapLock			encoderLock;	//	used to lock the cached BC7 encoder
 	
 	void			*atebc7Encoder;	//	actual a 'HapCodecDXTEncoderRef'.  only non-NULL when using the ATE BC7 encoder.
 	
@@ -70,7 +69,7 @@ This class is the main interface for using AVFoundation to encode and output vid
 
 /**
 Functionally similar to the same method in its superclass- initializes the returned AVAssetWriterInput based on the settings in the passed dictionary.
-@param vidOutSettings An NSDictionary such as you would pass to any other instance of AVAssetWriterInput- the only difference is that this dict must specify a hap video codec using AVVideoCodecHap, AVVideoCodecHapAlpha, AVVideoCodecHapQ, AVVideoCodecHap7Alpha, or AVVideoCodecHapHDR (defined in this header file).  Like the JPEG codec, the hap codec recognizes the AVVideoQualityKey- if the corresponding value > 0.80, a slower, high-quality encoder is used.  if the value is <= 0.80 or isn't specified at all, a fast low-quality encoder is used (the default).
+@param vidOutSettings An NSDictionary such as you would pass to any other instance of AVAssetWriterInput- the only difference is that this dict must specify a hap video codec using AVVideoCodecHap, AVVideoCodecHapAlpha, AVVideoCodecHapQ, AVVideoCodecHap7Alpha, or AVVideoCodecHapHDR (defined in this header file). Like the JPEG codec, the Hap codec recognizes AVVideoQualityKey: values greater than 0.80 select the slower, higher-quality Squish encoder; lower values or no value select the faster Squish encoder (the default).
 @return Returns nil if the passed dict doesn't describe a hap video track, otherwise it returns the initialized writer input.
 */
 - (id) initWithOutputSettings:(NSDictionary *)vidOutSettings;

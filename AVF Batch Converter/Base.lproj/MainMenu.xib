@@ -686,7 +686,7 @@
             </connections>
         </customObject>
         <window title="AVF Batch Exporter" allowsToolTipsWhenApplicationIsInactive="NO" autorecalculatesKeyViewLoop="NO" releasedWhenClosed="NO" animationBehavior="default" id="htD-dR-F4E">
-            <windowStyleMask key="styleMask" titled="YES" closable="YES" miniaturizable="YES" resizable="YES" texturedBackground="YES"/>
+            <windowStyleMask key="styleMask" titled="YES" closable="YES" miniaturizable="YES" resizable="YES"/>
             <windowPositionMask key="initialPositionMask" leftStrut="YES" topStrut="YES"/>
             <rect key="contentRect" x="118" y="653" width="962" height="261"/>
             <rect key="screenRect" x="0.0" y="0.0" width="3840" height="2135"/>

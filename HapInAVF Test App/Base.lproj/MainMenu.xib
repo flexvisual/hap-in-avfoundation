@@ -14,7 +14,6 @@
         <customObject id="-3" userLabel="Application" customClass="NSObject"/>
         <customObject id="Voe-Tx-rLC" customClass="HapInAVFTestAppDelegate">
             <connections>
-                <outlet property="glView" destination="31I-59-1lg" id="vVW-AH-0vN"/>
                 <outlet property="imgView" destination="0yA-2Z-CCI" id="8hU-jI-25O"/>
                 <outlet property="metalView" destination="6om-VZ-axy" id="l6U-f2-k0s"/>
                 <outlet property="statusField" destination="G7c-WL-ZDS" id="sFI-8j-MNj"/>
@@ -697,15 +696,15 @@
                         <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
                         <font key="font" metaFont="system"/>
                         <tabViewItems>
-                            <tabViewItem label="OpenGL (GPU)" identifier="1" id="9a4-Zr-hnh">
-                                <view key="view" id="bQR-7R-HjK">
+                            <tabViewItem label="Metal (GPU)" identifier="" id="CwH-8H-CAg">
+                                <view key="view" id="iAH-a6-HRZ">
                                     <rect key="frame" x="10" y="33" width="354" height="260"/>
                                     <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
                                     <subviews>
-                                        <openGLView wantsLayer="YES" fixedFrame="YES" useAuxiliaryDepthBufferStencil="NO" allowOffline="YES" translatesAutoresizingMaskIntoConstraints="NO" id="31I-59-1lg" customClass="GLView">
+                                        <customView fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="6om-VZ-axy" customClass="HapMTKView">
                                             <rect key="frame" x="17" y="17" width="320" height="240"/>
                                             <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
-                                        </openGLView>
+                                        </customView>
                                     </subviews>
                                 </view>
                             </tabViewItem>
@@ -719,18 +718,6 @@
                                             <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
                                             <imageCell key="cell" refusesFirstResponder="YES" alignment="left" imageScaling="proportionallyDown" id="pdj-Vy-E1N"/>
                                         </imageView>
-                                    </subviews>
-                                </view>
-                            </tabViewItem>
-                            <tabViewItem label="Metal (GPU)" identifier="" id="CwH-8H-CAg">
-                                <view key="view" id="iAH-a6-HRZ">
-                                    <rect key="frame" x="10" y="33" width="354" height="260"/>
-                                    <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
-                                    <subviews>
-                                        <customView fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="6om-VZ-axy" customClass="HapMTKView">
-                                            <rect key="frame" x="17" y="17" width="320" height="240"/>
-                                            <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
-                                        </customView>
                                     </subviews>
                                 </view>
                             </tabViewItem>

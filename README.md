@@ -5,14 +5,42 @@ Hap is a video codec for fast decompression on modern graphics hardware. This is
 
 The HapInAVFoundation framework supports encoding and decoding Hap video. Unlike the QuickTime codec, the HapInAVFoundation framework will only decode to S3TC/DXT frames suitable for upload to graphics hardware at this time.  If requested, decoding to RGB(A) pixel formats can be added.  Encoding RGB(A) frames is supported.  For the most part, this is a port of the hap quicktime codec.
 
-Sample code for a test application ("HapInAVF Test App") that demonstrates the use of this framework for accelerated playback is included.
+DXT1 and DXT5 encoding and the CPU fallback use libsquish. BC7 encoding uses `bc7enc_rdo`. Hap frame parsing and Snappy decompression use their upstream source. Sparkle is loaded as a local Swift Package.
+
+Sample code for a test application ("HapInAVF Test App") that demonstrates Metal-accelerated playback is included.
 
 Download
 ====
 
 A compiled version of the framework can be downloaded from the [Releases](https://github.com/Vidvox/hap-in-avfoundation/releases/latest) page.
 
-Requires at minimum MacOS 10.10 Yosemite.
+The HapInAVFoundation.framework target is built for arm64 and requires macOS 15.4 or later.
+Building from source requires CMake 3.10 or later to configure Snappy.
+
+Workspace dependencies
+-------------------
+
+The project expects its dependency checkouts as sibling folders next to this repository:
+
+```text
+ModFrameworks/hap/
+  hap-in-avfoundation/
+  snappy/
+  hap/
+  libsquish/
+  bc7enc_rdo/
+  Sparkle/
+```
+
+| Dependency | Upstream |
+|---|---|---|
+| Snappy | [google/snappy](https://github.com/google/snappy) |
+| libsquish | [arves100/libsquish](https://github.com/arves100/libsquish) |
+| Hap parser | [Vidvox/hap](https://github.com/Vidvox/hap) |
+| BC7 block encoder | [richgel999/bc7enc_rdo](https://github.com/richgel999/bc7enc_rdo) |
+| Sparkle | [sparkle-project/Sparkle](https://github.com/sparkle-project/Sparkle) |
+
+Run `bash scripts/build.sh` from this repository to verify the sibling checkouts and build the default `HapInAVFoundation` scheme. The script does not update dependency repositories; update each checkout from its own Git repository when desired. Sparkle's Swift Package manifest is loaded from `../Sparkle` and obtains its binary artifact through Swift Package Manager. `bc7enc_rdo` is currently used through its BC7 block-encoding API; the frame-level rate-distortion optimizer is not enabled.
 
 Using the HapInAVFoundation.framework
 ====
@@ -43,12 +71,17 @@ If you're compiling from source
 Documentation
 ===
 
-[Documentation for this framework can be found here.](http://vidvox.net/rays_oddsnends/HapInAVFoundation_doc/html/index.html)  The header files are also commented extensively, and the included sample application demonstrates the use of the framework to play back Hap video to GL textures.
+[Documentation for this framework can be found here.](http://vidvox.net/rays_oddsnends/HapInAVFoundation_doc/html/index.html)  The header files are also commented extensively, and the included sample application demonstrates the use of the framework to play back Hap video using Metal textures.
 
 Open-Source
 ====
 
 The Hap codec project is open-source, licensed under a [FreeBSD License][2], meaning you can use it in your commercial or non-commercial applications free of charge.  The hap project was originally written by [Tom Butterworth][3] and commissioned by [VIDVOX][4], 2012.
+
+Redistribution and third-party licenses
+---------------------------------------
+
+The Xcode framework and GUI app targets copy `LICENSE` and `LICENSES/` into their built bundles. If distributing the static library or the `AVFtoHap` command-line tool, include those files alongside the binary. The YCoCg DXT compressor contains code marked LGPL-2.1-or-later; review `LICENSES/LGPL-2.1.txt` and comply with its applicable source and relinking requirements. Including the notices alone may not be sufficient for every binary distribution.
 
 [1]: http://github.com/vidvox/hap
 [2]: http://github.com/vidvox/hap-in-avfoundation/blob/master/LICENSE

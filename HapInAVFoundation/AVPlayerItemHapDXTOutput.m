@@ -3,12 +3,14 @@
 #import "AVAssetAdditions.h"
 #import "PixelFormats.h"
 #import "HapPlatform.h"
-#import "HapCodecGL.h"
+#import "../source/DXT/SquishDecodePortable.h"
 #include "YCoCg.h"
 #include "YCoCgDXT.h"
 #include "SquishRGTC1Decoder.h"
 #import "CMBlockBufferPool.h"
 #import "HapMetalDXTDecoder.h"
+#import <os/log.h>
+#import <os/signpost.h>
 
 
 
@@ -31,10 +33,22 @@ void HapMTDecode(HapDecodeWorkFunction function, void *p, unsigned int count, vo
 #define MAXDECODEDFRAMES 3
 #define MAXPLAYEDOUTFRAMES 3
 
+static os_log_t HapDecodePerformanceLog(void) {
+	static os_log_t log;
+	static dispatch_once_t onceToken;
+	dispatch_once(&onceToken, ^{
+		log = os_log_create("com.vidvox.HapInAVFoundation", "PointsOfInterest");
+	});
+	return log;
+}
+
 
 
 
 @implementation AVPlayerItemHapDXTOutput
+{
+	NSUInteger attachGeneration;
+}
 
 
 + (void) initialize {
@@ -169,7 +183,7 @@ void HapMTDecode(HapDecodeWorkFunction function, void *p, unsigned int count, vo
 			//	generate a sample buffer for the requested time.  this sample buffer contains a hap frame (compressed).
 			AVSampleBufferRequest	*request = [[AVSampleBufferRequest alloc] initWithStartCursor:cursor];
 			[request setMode:AVSampleBufferRequestModeImmediate];
-			CMSampleBufferRef		newSample = (gen==nil) ? nil : [gen createSampleBufferForRequest:request];
+			CMSampleBufferRef		newSample = (gen==nil) ? nil : [gen createSampleBufferForRequest:request error:NULL];
 			UNLOCK(&propertyLock);
 	
 			if (newSample==NULL)	{
@@ -605,7 +619,9 @@ void HapMTDecode(HapDecodeWorkFunction function, void *p, unsigned int count, vo
 			if (hapErr != HapResult_No_Error)
 				NSLog(@"\t\terr: %d at HapGetFrameTextureCount() in %s",hapErr,__func__);
 			else	{
-				
+				os_log_t performanceLog = HapDecodePerformanceLog();
+				os_signpost_id_t decodeID = os_signpost_id_generate(performanceLog);
+				os_signpost_interval_begin(performanceLog, decodeID, "Hap Snappy decode");
 				hapErr = HapDecode(dataBuffer, dataBlockBufferAvailableData,
 					0,
 					(HapDecodeCallback)HapMTDecode,
@@ -613,11 +629,14 @@ void HapMTDecode(HapDecodeWorkFunction function, void *p, unsigned int count, vo
 					dxtDatas[0], dxtDataSizes[0],
 					NULL,
 					&(dxtTextureFormats[0]));
+				os_signpost_interval_end(performanceLog, decodeID, "Hap Snappy decode");
 				if (hapErr != HapResult_No_Error)	{
 					NSLog(@"\t\terr: %d at HapDecode() with index 0 in %s",hapErr,__func__);
 				}
 				
 				if (hapTexCount>1)	{
+					decodeID = os_signpost_id_generate(performanceLog);
+					os_signpost_interval_begin(performanceLog, decodeID, "Hap Snappy decode");
 					hapErr = HapDecode(dataBuffer, dataBlockBufferAvailableData,
 						1,
 						(HapDecodeCallback)HapMTDecode,
@@ -625,6 +644,7 @@ void HapMTDecode(HapDecodeWorkFunction function, void *p, unsigned int count, vo
 						dxtDatas[1], dxtDataSizes[1],
 						NULL,
 						&(dxtTextureFormats[1]));
+					os_signpost_interval_end(performanceLog, decodeID, "Hap Snappy decode");
 					if (hapErr != HapResult_No_Error)	{
 						NSLog(@"\t\terr: %d at HapDecode() with index 1 in %s",hapErr,__func__);
 					}
@@ -647,10 +667,10 @@ void HapMTDecode(HapDecodeWorkFunction function, void *p, unsigned int count, vo
 						DeCompressYCoCgDXT5((const byte *)dxtDatas[0], (byte *)convMem, imgSize.width, imgSize.height, dxtImgSize.width*4);
 						//	convert the DXT5 data in the conversion buffer to either RGBA or BGRA data in the rgb buffer
 						if (rgbPixelFormat == k32RGBAPixelFormat)	{
-							ConvertCoCg_Y8888ToRGB_((uint8_t *)convMem, (uint8_t *)rgbData, imgSize.width, imgSize.height, dxtImgSize.width * 4, rgbDataSize/(NSUInteger)dxtImgSize.height, 1);
+							ConvertCoCg_Y8888ToRGB_((uint8_t *)convMem, (uint8_t *)rgbData, imgSize.width, imgSize.height, dxtImgSize.width * 4, rgbDataSize/(NSUInteger)imgSize.height, 1);
 						}
 						else	{
-							ConvertCoCg_Y8888ToBGR_((uint8_t *)convMem, (uint8_t *)rgbData, imgSize.width, imgSize.height, dxtImgSize.width * 4, rgbDataSize/(NSUInteger)dxtImgSize.height, 1);
+							ConvertCoCg_Y8888ToBGR_((uint8_t *)convMem, (uint8_t *)rgbData, imgSize.width, imgSize.height, dxtImgSize.width * 4, rgbDataSize/(NSUInteger)imgSize.height, 1);
 						}
 					
 						if (convMem!=nil)	{
@@ -658,33 +678,28 @@ void HapMTDecode(HapDecodeWorkFunction function, void *p, unsigned int count, vo
 							convMem = nil;
 						}
 					}
-					//	else it's a "normal" (non-YCoCg) DXT texture format, use the GL decoder
+					//	else it's a normal DXT format; decode its blocks on the CPU
 					else if (dxtTextureFormats[0]==HapTextureFormat_RGB_DXT1 || dxtTextureFormats[0]==HapTextureFormat_RGBA_DXT5)	{
-						//	make a GL decoder
-						void			*glDecoder = HapCodecGLCreateDecoder(dxtImgSize.width, dxtImgSize.height, dxtTextureFormats[0]);
-						if (glDecoder != NULL)	{
-							//	decode the DXT data into the rgb buffer
-							//NSLog(@"\t\tcalling %ld with userInfo %@",rgbDataSize/(NSUInteger)dxtImgSize.height,[n userInfo]);
-							hapErr = HapCodecGLDecode(glDecoder,
-								(unsigned int)(rgbDataSize/(NSUInteger)dxtImgSize.height),
-								(rgbPixelFormat==kCVPixelFormatType_32BGRA) ? HapCodecGLPixelFormat_BGRA8 : HapCodecGLPixelFormat_RGBA8,
-								dxtDatas[0],
-								rgbData);
-							if (hapErr!=HapResult_No_Error)
-								NSLog(@"\t\terr %d at HapCodecGLDecoder() in %s",hapErr,__func__);
-							else	{
-								//NSLog(@"\t\tsuccessfully decoded to RGB data!");
-							}
-						
-							//	free the GL decoder
-							HapCodecGLDestroy(glDecoder);
-							glDecoder = NULL;
-						}
-					
+						uint32_t pixelFormat = dxtTextureFormats[0] == HapTextureFormat_RGB_DXT1
+							? kHapCVPixelFormat_RGB_DXT1
+							: kHapCVPixelFormat_RGBA_DXT5;
+						uint32_t outputPixelFormat = rgbPixelFormat == kCVPixelFormatType_32BGRA ? 'BGRA' : 'RGBA';
+						os_signpost_id_t conversionID = os_signpost_id_generate(HapDecodePerformanceLog());
+						os_signpost_interval_begin(HapDecodePerformanceLog(), conversionID, "CPU DXT to RGBA");
+						hapErr = HapCodecSquishDecodePortable(dxtDatas[0],
+							pixelFormat,
+							rgbData,
+							outputPixelFormat,
+							(uint32_t)(rgbDataSize / (NSUInteger)imgSize.height),
+							(uint32_t)imgSize.width,
+							(uint32_t)imgSize.height);
+						os_signpost_interval_end(HapDecodePerformanceLog(), conversionID, "CPU DXT to RGBA");
+						if (hapErr != HapResult_No_Error)
+							NSLog(@"\t\terr %d at HapCodecSquishDecodePortable() in %s",hapErr,__func__);
 					}
                     else if (dxtTextureFormats[0] == HapTextureFormat_A_RGTC1)    {
-                        unsigned int        bytesPerRow = (unsigned int)(rgbDataSize/(NSUInteger)dxtImgSize.height);
-                        HapCodecSquishRGTC1DecodeAsAlphaOnly(dxtDatas[0], rgbData, bytesPerRow, dxtImgSize.width, dxtImgSize.height);
+                        unsigned int        bytesPerRow = (unsigned int)(rgbDataSize/(NSUInteger)imgSize.height);
+                        HapCodecSquishRGTC1DecodeAsAlphaOnly(dxtDatas[0], rgbData, bytesPerRow, imgSize.width, imgSize.height);
                     }
                     else if (dxtTextureFormats[0] == HapTextureFormat_RGBA_BPTC_UNORM)	{
                     	//unsigned int		bytesPerRow = (unsigned int)(rgbDataSize/(NSUInteger)dxtImgSize.height);
@@ -768,8 +783,8 @@ void HapMTDecode(HapDecodeWorkFunction function, void *p, unsigned int count, vo
 				
 					//	if there's an alpha plane, decode it and apply it to the rgbData
 					if (dxtTextureFormats[1] == HapTextureFormat_A_RGTC1)	{
-						unsigned int		bytesPerRow = (unsigned int)(rgbDataSize/(NSUInteger)dxtImgSize.height);
-						HapCodecSquishRGTC1Decode(dxtDatas[1], rgbData, bytesPerRow, dxtImgSize.width, dxtImgSize.height);
+						unsigned int		bytesPerRow = (unsigned int)(rgbDataSize/(NSUInteger)imgSize.height);
+						HapCodecSquishRGTC1Decode(dxtDatas[1], rgbData, bytesPerRow, imgSize.width, imgSize.height);
 					}
 				}
 			
@@ -1078,6 +1093,7 @@ void HapMTDecode(HapDecodeWorkFunction function, void *p, unsigned int count, vo
 	//NSLog(@"%s",__func__);
 	LOCK(&propertyLock);
 	
+	attachGeneration++;
 	decodeQueue = NULL;
 	track = nil;
 	gen = nil;
@@ -1092,51 +1108,73 @@ void HapMTDecode(HapDecodeWorkFunction function, void *p, unsigned int count, vo
 }
 - (BOOL)_attachToPlayerItem:(id)arg1	{
 	//NSLog(@"%s",__func__);
-	BOOL		returnMe = YES;
-	if (arg1!=nil)	{
-		
-		AVAsset				*itemAsset = nil;
-		AVAssetTrack		*hapTrack = nil;
-		/*	AVMutableComposition is a subclass of AVAsset- but AVSampleBufferGenerator can't work with 
-		it, so if the player we're attaching to loaded a composition we have to programmatically 
-		determine the source URL, creat our own asset, pull its hap track, and create the sample 
-		buffer generator from *that*.			*/
-		if ([[arg1 asset] isKindOfClass:[AVComposition class]]) {
-			NSArray				*segments = [[arg1 hapTrack] segments];
-			AVCompositionTrackSegment	*segment = (segments==nil || [segments count]<1) ? nil : [segments objectAtIndex:0];
-			NSURL				*assetURL = (segment==nil) ? nil : [segment sourceURL];
-			itemAsset = [AVAsset assetWithURL:assetURL];
-			NSArray				*hapTracks = [itemAsset hapVideoTracks];
-			hapTrack = (hapTracks==nil || [hapTracks count]<1) ? nil : [hapTracks objectAtIndex:0];
+	if (arg1 == nil)
+		return YES;
+
+	AVPlayerItem *playerItem = arg1;
+	AVAsset *itemAsset = playerItem.asset;
+	LOCK(&propertyLock);
+	NSUInteger generation = ++attachGeneration;
+	UNLOCK(&propertyLock);
+
+	void (^finishAttach)(AVAsset *, AVAssetTrack *, NSError *) = ^(AVAsset *asset, AVAssetTrack *hapTrack, NSError *error) {
+		if (error != nil) {
+			NSLog(@"Unable to load Hap video track: %@", error);
+			return;
 		}
-		//	else the passed player item's asset is presumably a plain, old-fashioned AVAsset
-		else	{
-			itemAsset = [arg1 asset];
-			hapTrack = [arg1 hapTrack];
+		if (asset == nil || hapTrack == nil)
+			return;
+
+		LOCK(&self->propertyLock);
+		if (generation == self->attachGeneration) {
+			self->decodeQueue = dispatch_queue_create("HapDecode", dispatch_queue_attr_make_with_qos_class(DISPATCH_QUEUE_SERIAL, DISPATCH_QUEUE_PRIORITY_HIGH, -1));
+			self->track = hapTrack;
+			self->gen = [[AVSampleBufferGenerator alloc] initWithAsset:asset timebase:playerItem.timebase];
+			self->lastGeneratedSampleTime = kCMTimeInvalid;
+			[self->decodeTimes removeAllObjects];
+			[self->decodeFrames removeAllObjects];
+			[self->decodingFrames removeAllObjects];
+			[self->decodedFrames removeAllObjects];
+			[self->playedOutFrames removeAllObjects];
 		}
-		
-		//	i only want to attach if there's a hap track...
-		if (hapTrack!=nil)	{
-			LOCK(&propertyLock);
-			
-			if (decodeQueue!=nil)
-				decodeQueue = nil;
-			//decodeQueue = dispatch_queue_create("HapDecode", DISPATCH_QUEUE_CONCURRENT);
-			decodeQueue = dispatch_queue_create("HapDecode", dispatch_queue_attr_make_with_qos_class(DISPATCH_QUEUE_SERIAL, DISPATCH_QUEUE_PRIORITY_HIGH, -1));
-			track = hapTrack;
-			gen = [[AVSampleBufferGenerator alloc] initWithAsset:itemAsset timebase:[arg1 timebase]];
-			lastGeneratedSampleTime = kCMTimeInvalid;
-			[decodeTimes removeAllObjects];
-			[decodeFrames removeAllObjects];
-			[decodingFrames removeAllObjects];
-			[decodedFrames removeAllObjects];
-			[playedOutFrames removeAllObjects];
-			
-			UNLOCK(&propertyLock);
-			//returnMe = YES;
-		}
+		UNLOCK(&self->propertyLock);
+	};
+
+	if ([itemAsset isKindOfClass:[AVComposition class]]) {
+		[playerItem loadHapTrackWithCompletionHandler:^(AVAssetTrack *compositionTrack, NSError *error) {
+			if (error != nil || compositionTrack == nil) {
+				finishAttach(nil, nil, error);
+				return;
+			}
+			[compositionTrack loadValuesAsynchronouslyForKeys:@[@"segments"] completionHandler:^{
+				NSError *segmentsError = nil;
+				if ([compositionTrack statusOfValueForKey:@"segments" error:&segmentsError] != AVKeyValueStatusLoaded) {
+					finishAttach(nil, nil, segmentsError);
+					return;
+				}
+				AVAssetTrackSegment *firstSegment = compositionTrack.segments.firstObject;
+				if (![firstSegment isKindOfClass:[AVCompositionTrackSegment class]]) {
+					finishAttach(nil, nil, nil);
+					return;
+				}
+				AVCompositionTrackSegment *segment = (AVCompositionTrackSegment *)firstSegment;
+				if (segment.sourceURL == nil) {
+					finishAttach(nil, nil, nil);
+					return;
+				}
+				AVAsset *sourceAsset = [AVAsset assetWithURL:segment.sourceURL];
+				[sourceAsset loadHapVideoTracksWithCompletionHandler:^(NSArray<AVAssetTrack *> *tracks, NSError *tracksError) {
+					finishAttach(sourceAsset, tracks.firstObject, tracksError);
+				}];
+			}];
+		}];
 	}
-	return returnMe;
+	else {
+		[playerItem loadHapTrackWithCompletionHandler:^(AVAssetTrack *hapTrack, NSError *error) {
+			finishAttach(itemAsset, hapTrack, error);
+		}];
+	}
+	return YES;
 }
 - (void) setOutputAsRGB:(BOOL)n {
 	LOCK(&propertyLock);
@@ -1168,4 +1206,3 @@ void HapMTDecode(HapDecodeWorkFunction function, void *p, unsigned int count, vo
 
 
 @end
-
