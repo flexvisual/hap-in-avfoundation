@@ -21,20 +21,14 @@ Precompiled Flexvisual releases are not currently published. For releases of the
 Workspace dependencies
 -------------------
 
-The project expects its dependency checkouts as sibling folders next to this repository:
+This project uses third-party dependencies maintained in separate upstream repositories. These dependencies are not included in this repository.
 
-```text
-ModFrameworks/hap/
-  hap-in-avfoundation/
-  snappy/
-  hap/
-  libsquish/
-  bc7enc_rdo/
-  Sparkle/
-```
+The Xcode project currently references external dependency checkouts using relative paths. Developers building directly from this repository must arrange those dependencies accordingly or update the project references for their environment.
+
+For automated dependency retrieval and framework packaging, see [ModFrameworks](https://github.com/flexvisual/ModFrameworks).
 
 | Dependency | Upstream |
-|---|---|---|
+|---|---|
 | Snappy | [google/snappy](https://github.com/google/snappy) |
 | libsquish | [arves100/libsquish](https://github.com/arves100/libsquish) |
 | Hap parser | [Vidvox/hap](https://github.com/Vidvox/hap) |
