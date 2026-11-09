@@ -12,10 +12,11 @@ Sample code for a test application ("HapInAVF Test App") that demonstrates Metal
 Download
 ====
 
-A compiled version of the framework can be downloaded from the [Releases](https://github.com/Vidvox/hap-in-avfoundation/releases/latest) page.
+This repository is a Flexvisual, Inc fork of the original VIDVOX HapInAVFoundation project.
 
-The HapInAVFoundation.framework target is built for arm64 and requires macOS 15.4 or later.
-Building from source requires CMake 3.10 or later to configure Snappy.
+For the Flexvisual version, build the framework from source using the instructions below or the automated builder in [ModFrameworks](https://github.com/flexvisual/ModFrameworks).
+
+Precompiled Flexvisual releases are not currently published. For releases of the original VIDVOX project, see [VIDVOX Releases](https://github.com/Vidvox/hap-in-avfoundation/releases).
 
 Workspace dependencies
 -------------------
