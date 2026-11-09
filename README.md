@@ -88,3 +88,13 @@ The Xcode framework and GUI app targets copy `LICENSE` and `LICENSES/` into thei
 [2]: http://github.com/vidvox/hap-in-avfoundation/blob/master/LICENSE
 [3]: http://kriss.cx/tom
 [4]: http://www.vidvox.net
+
+### Flexvisual fork and licensing
+
+This repository contains modifications to the original VIDVOX HapInAVFoundation project. Original copyright notices and applicable third-party licenses are preserved.
+
+The Flexvisual source modifications are publicly available in this repository. The ModFrameworks build system also records pinned dependency revisions and generates a source-compliance archive.
+
+Some components, including the YCoCg DXT compressor, contain LGPL-2.1-or-later code. Public source availability and license notices do not, by themselves, establish compliance for every binary distribution. Distributors must review applicable source-code, modification, and relinking obligations, particularly for statically linked binaries.
+
+The licenses of the included third-party components remain applicable independently of the licensing of ModFrameworks or ModCore.
